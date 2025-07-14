@@ -2,6 +2,7 @@ package main
 
 import (
 	"cmp"
+	"flag"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -10,31 +11,27 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/richardwilkes/toolbox/atexit"
-	"github.com/richardwilkes/toolbox/cmdline"
-	"github.com/richardwilkes/toolbox/collection/dict"
+	"github.com/richardwilkes/toolbox/v2/xflag"
+	"github.com/richardwilkes/toolbox/v2/xos"
 	"github.com/yookoala/realpath"
 )
 
 func main() {
-	cmdline.AppName = "Remove Empty Directories"
-	cmdline.AppVersion = "1.0.0"
-	cmdline.CopyrightHolder = "Richard Wilkes"
-	cmdline.CopyrightStartYear = "2018"
-	cmdline.License = "Mozilla Public License Version 2.0"
-	cl := cmdline.New(true)
-	cl.UsageSuffix = "dirs..."
-	var remove bool
-	cl.NewGeneralOption(&remove).SetName("delete").SetSingle('d').SetUsage("Delete all empty directories found")
-	paths := cl.Parse(os.Args[1:])
+	xos.AppName = "Remove Empty Directories"
+	xos.AppVersion = "1.1.0"
+	xos.CopyrightHolder = "Richard Wilkes"
+	xos.CopyrightStartYear = "2018"
+	xos.License = "Mozilla Public License Version 2.0"
+	xflag.SetUsage(nil, "", "[dir]...")
+	remove := flag.Bool("delete", false, "Delete all empty directories found")
+	xflag.AddVersionFlags()
+	xflag.Parse()
+	paths := flag.Args()
 
 	// If no paths specified, use the current directory
 	if len(paths) == 0 {
 		wd, err := os.Getwd()
-		if err != nil {
-			fmt.Println("unable to determine current working directory.")
-			atexit.Exit(1)
-		}
+		xos.ExitIfErr(err)
 		paths = append(paths, wd)
 	}
 
@@ -42,10 +39,7 @@ func main() {
 	set := make(map[string]struct{})
 	for _, path := range paths {
 		actual, err := realpath.Realpath(path)
-		if err != nil {
-			fmt.Printf("unable to determine real path for '%s'.\n", path)
-			atexit.Exit(1)
-		}
+		xos.ExitIfErr(err)
 		if _, exists := set[actual]; !exists {
 			add := true
 			for one := range set {
@@ -68,7 +62,7 @@ func main() {
 	// Find all directories
 	var dirs []string
 	for root := range maps.Keys(set) {
-		if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		xos.ExitIfErr(filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
@@ -79,10 +73,7 @@ func main() {
 				dirs = append(dirs, path)
 			}
 			return nil
-		}); err != nil {
-			fmt.Println(err)
-			atexit.Exit(1)
-		}
+		}))
 	}
 
 	// Sort directories by length and then by name
@@ -99,10 +90,7 @@ func main() {
 	var dsStores []bool
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
-		if err != nil {
-			fmt.Printf("unable to read directory '%s'.\n", dir)
-			atexit.Exit(1)
-		}
+		xos.ExitIfErr(err)
 		m := make(map[string]fs.DirEntry)
 		for _, entry := range entries {
 			m[filepath.Join(dir, entry.Name())] = entry
@@ -118,7 +106,7 @@ func main() {
 		if len(m) != 1 {
 			continue
 		}
-		entry := dict.Values(m)[0]
+		entry := slices.Collect(maps.Values(m))[0]
 		if entry.Type().IsRegular() && entry.Name() == ".DS_Store" {
 			empties = append(empties, dir)
 			dsStores = append(dsStores, true)
@@ -126,34 +114,25 @@ func main() {
 	}
 
 	extra := ""
-	if remove {
+	if *remove {
 		extra = " (will be removed)"
 	}
 	fmt.Printf("Empty directories%s:\n", extra)
 	for i, one := range empties {
 		fmt.Println(one)
-		if remove {
+		if *remove {
 			if dsStores[i] {
-				if err := os.Remove(filepath.Join(one, ".DS_Store")); err != nil {
-					fmt.Printf("unable to remove file '%s/.DS_Store'.\n", one)
-					atexit.Exit(1)
-				}
+				xos.ExitIfErr(os.Remove(filepath.Join(one, ".DS_Store")))
 			}
-			if err := os.Remove(one); err != nil {
-				fmt.Printf("unable to remove directory '%s'.\n", one)
-				atexit.Exit(1)
-			}
+			xos.ExitIfErr(os.Remove(one))
 		}
 	}
 
-	atexit.Exit(0)
+	xos.Exit(0)
 }
 
 func rel(base, target string) string {
 	path, err := filepath.Rel(base, target)
-	if err != nil {
-		fmt.Println(err)
-		atexit.Exit(1)
-	}
+	xos.ExitIfErr(err)
 	return path
 }
